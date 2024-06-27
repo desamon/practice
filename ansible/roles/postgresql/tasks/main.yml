@@ -1,0 +1,81 @@
+---
+# Устанавливаем пакет postgresql-server
+- name: "Install required packages for PostgreSQL"
+  ansible.builtin.yum:
+    name: postgresql-server
+    state: present
+
+# Проверяем, нужно ли инициализировать базу данных PostgreSQL
+- name: "Check if we need to initialize PostgreSQL"
+  ansible.builtin.stat:
+    path: "/var/lib/pgsql/data/pg_hba.conf"
+  register: pg_hba
+
+# Инициализируем базу данных PostgreSQL, если файл pg_hba.conf не существует
+- name: "Initialize PostgreSQL"
+  shell: "postgresql-setup initdb"
+  when: not pg_hba.stat.exists
+
+# Копируем шаблон конфигурационного файла PostgreSQL
+- name: "Copy PostgreSQL configuration file"
+  template:
+    src: postgresql.conf.j2
+    dest: /var/lib/pgsql/data/postgresql.conf
+    owner: postgres
+    group: postgres
+    mode: '0644'
+  notify: restart postgres  # Уведомление о перезапуске PostgreSQL
+
+# Конфигурируем PostgreSQL для прослушивания всех адресов
+- name: "Configure PostgreSQL to listen on all addresses"
+  lineinfile:
+    path: /var/lib/pgsql/data/postgresql.conf
+    regexp: '^#?listen_addresses = '
+    line: "listen_addresses = '*'"
+    state: present
+  notify: restart postgres  # Уведомление о перезапуске PostgreSQL
+
+# Разрешаем подключения для всех пользователей с использованием md5-аутентификации
+- name: "Allow md5 connection for all users"
+  lineinfile:
+    path: /var/lib/pgsql/data/pg_hba.conf
+    regexp: '^host    all             all'
+    line: 'host    all             all             0.0.0.0/0               md5'
+    state: present
+  notify: restart postgres  # Уведомление о перезапуске PostgreSQL
+
+# Запускаем и включаем сервис PostgreSQL
+- name: "Start and enable PostgreSQL service"
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+# Создаем пользователя PostgreSQL
+- name: "Create PostgreSQL user"
+  community.general.postgresql_user:
+    name: "{{ db_user }}"
+    password: "{{ db_password }}"
+    state: present
+  become: yes
+  become_user: postgres
+
+# Создаем базу данных PostgreSQL
+- name: "Create PostgreSQL database"
+  community.general.postgresql_db:
+    name: "{{ db_name }}"
+    owner: "{{ db_user }}"
+    state: present
+  become: yes
+  become_user: postgres
+
+# Предоставляем пользователю доступ ко всем привилегиям в базе данных
+- name: "Grant db user access to the database"
+  community.general.postgresql_privs:
+    type: database
+    database: "{{ db_name }}"
+    roles: "{{ db_user }}"
+    grant_option: no
+    privs: all
+  become: yes
+  become_user: postgres

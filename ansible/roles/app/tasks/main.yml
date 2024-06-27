@@ -1,0 +1,115 @@
+---
+# Устанавливаем системные зависимости для сборки приложения и Ruby
+- name: "Install system packages for app building and Ruby"
+  ansible.builtin.yum:
+    name: "{{ sys_dependencies }}"
+    state: present
+
+# Проверяем, установлена ли требуемая версия Ruby
+- name: "Check if required Ruby version is installed"
+  command: ruby -v
+  register: ruby_version
+  ignore_errors: true
+
+# Установка rvm, если он не установлен
+- block:
+    - name: "Check if rvm is installed"
+      command: /usr/local/rvm/bin/rvm -v
+      register: rvm_installed
+      ignore_errors: true
+
+    # Установка ключей для rvm
+    - name: "Get and install keys for rvm"
+      shell: curl -sSL https://rvm.io/"{{ item }}" | gpg2 --import -
+      args:
+        warn: false
+      with_items:
+        - "mpapis.asc"
+        - "pkuczynski.asc"
+
+    # Установка rvm
+    - name: "Install rvm"
+      shell: curl -L get.rvm.io | bash -s stable
+      args:
+        warn: false
+
+    # Загрузка окружения rvm
+    - name: "Load rvm environment"
+      shell: source /etc/profile.d/rvm.sh && /usr/local/rvm/bin/rvm reload
+
+    # Проверка и установка зависимостей rvm
+    - name: "Check and install rvm dependencies"
+      shell: "/usr/local/rvm/bin/rvm requirements run"
+
+    # Установка требуемой версии Ruby
+    - name: "Install required Ruby version"
+      shell: /usr/local/rvm/bin/rvm install 2.5.1
+
+    # Удаление старой версии Ruby, если она установлена по умолчанию в CentOS
+    - name: "Remove CentOS Ruby binary"
+      ansible.builtin.file:
+        path: /usr/bin/ruby
+        state: absent
+
+    # Создание симлинки на требуемую версию Ruby в окружении rvm
+    - name: "Create a symlink for required Ruby version in rvm environment"
+      ansible.builtin.file:
+        dest: /usr/bin/ruby
+        src: /usr/local/rvm/rubies/ruby-2.5.1/bin/ruby
+        state: link
+  when: rvm_installed.rc != 0
+  # условие проверяет, была ли успешно установлена rvm
+  # rvm_installed.rc содержит код возврата выполнения команды, где 0 означает успешное выполнение
+  # если rvm не установлен (rvm_installed.rc != 0) -> нужно выполнить установку RVM и создание симлинки на Ruby
+
+# Настройка окружения и установка зависимостей приложения
+- name: "Configure environment and install application dependencies"
+  block:
+    # Установка Bundler
+    - name: "Install bundler gem"
+      ansible.builtin.gem:
+        name: bundler
+        state: present
+
+    # Настройка Nokogiri для использования системных библиотек
+    - name: "Configure Nokogiri build using system libraries"
+      shell: /usr/local/rvm/bin/rvm all do bundle config build.nokogiri --use-system-libraries
+      args:
+        chdir: /home/vagrant/xpaste_practicum
+
+    # Установка зависимостей приложения
+    - name: "Install application dependencies"
+      shell: /usr/local/rvm/bin/rvm all do bundle install --clean --force --no-cache --without development
+      args:
+        chdir: /home/vagrant/xpaste_practicum
+
+# Запуск миграций базы данных приложения
+- name: "Run database migrations"
+  shell: /usr/local/rvm/bin/rvm all do bundle exec rake db:migrate
+  args:
+    chdir: /home/vagrant/xpaste_practicum
+  environment:
+    RAILS_ENV: "{{ rails_env }}"
+    SECRET_KEY_BASE: "{{ secret_key_base }}"
+    RAILS_LOG_TO_STDOUT: "{{ rails_log_to_stdout }}"
+    DB_HOST: "{{ db_host }}"
+    DB_PORT: "{{ db_port }}"
+    DB_NAME: "{{ db_name }}"
+    DB_USER: "{{ db_user }}"
+    DB_PASSWORD: "{{ db_password }}"
+
+# Создание файла сервиса для приложения xpaste
+- name: "Create service file for application xpaste"
+  template:
+    src: xpaste.service.j2
+    dest: /etc/systemd/system/xpaste.service
+    owner: root
+    mode: 0644
+
+# Настройка автозапуска сервиса xpaste
+- name: "Setting xpaste service to autostart"
+  ansible.builtin.systemd:
+    name: xpaste
+    enabled: yes
+    state: restarted
+    daemon_reload: yes

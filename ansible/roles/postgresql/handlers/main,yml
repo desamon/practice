@@ -1,0 +1,7 @@
+---
+# Обработчик для перезапуска сервиса PostgreSQL
+# Этот обработчик будет выполнен, если какая-либо задача отправит уведомление "restart postgres"
+- name: restart postgres
+  service:
+    name: postgresql
+    state: restarted

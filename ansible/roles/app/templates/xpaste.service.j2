@@ -1,0 +1,18 @@
+[Unit]
+Description=Xpaste Application
+
+[Service]
+ExecStart=/usr/local/bin/bundle exec rake db:migrate && /usr/local/bin/bundle exec puma -b unix:///var/run/puma.sock -e {{ rails_env }} config.ru
+Environment=SECRET_KEY_BASE={{ secret_key_base }}
+Environment=RAILS_ENV={{ rails_env }}
+Environment=RAILS_LOG_TO_STDOUT=1
+Environment=DB_HOST={{ db_host }}
+Environment=DB_PORT={{ db_port }}
+Environment=DB_NAME={{ db_name }}
+Environment=DB_USER={{ db_user }}
+Environment=DB_PASSWORD={{ db_password }}
+WorkingDirectory=/home/vagrant/xpaste_practicum
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

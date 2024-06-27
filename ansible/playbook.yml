@@ -1,0 +1,18 @@
+---
+- hosts: all
+  become: yes
+  roles:
+    - role: postgresql
+    - role: nginx
+    - role: app
+
+- name: Configure Nginx
+  hosts: all
+  become: yes
+  tasks:
+    - name: Copy Nginx configuration
+      template:
+        src: roles/nginx/templates/nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
+      notify:
+        - Reload Nginx
